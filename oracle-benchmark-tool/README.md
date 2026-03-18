@@ -2,7 +2,7 @@
 
 Compares read performance of:
 - **Single wide table (100 columns)** -- always reads ALL columns (simulates a denormalized design where you must fetch everything)
-- **3 normalized tables joined** -- reads only the NEEDED columns (default: 10), showing the advantage of normalization
+- **3 normalized tables** -- reads only the NEEDED columns (default: 10) by joining just 2 of the 3 tables (single JOIN)
 
 ## Read Patterns Tested
 
@@ -13,20 +13,20 @@ Compares read performance of:
 | 2 | `VIEW (all 100 cols)` | Reads through a VIEW over all 100 columns |
 | 3 | `SELECT *` | `SELECT *` from the wide table |
 
-### 3-Table JOIN (reads only 10 columns)
+### Normalized (reads only 10 columns via 1 JOIN of 2 tables)
 | # | Pattern | Description |
 |---|---------|-------------|
-| 1 | `SELECT (10 cols) + JOIN` | Selects 10 columns via a 3-way JOIN |
-| 2 | `VIEW (10 cols) + JOIN` | Reads through a VIEW built on a 3-way JOIN |
-| 3 | `SELECT * + JOIN` | Selects columns via a 3-way JOIN |
+| 1 | `SELECT (10 cols) + JOIN` | Selects 10 columns via a single JOIN of 2 tables |
+| 2 | `VIEW (10 cols) + JOIN` | Reads through a VIEW built on a 2-table JOIN |
+| 3 | `SELECT * + JOIN` | Selects columns via a single JOIN of 2 tables |
 
 Each pattern is executed multiple times (default: 10) and min/max/avg/median/stdev are reported.
 
 ## What It Does
 
 1. **Phase 1 -- Single Table**: Creates `BENCH_SINGLE` with 100 `VARCHAR2(50)` columns, inserts 10 000 rows of random data, and benchmarks reading ALL columns.
-2. **Phase 2 -- Three Tables with JOIN**: Creates `BENCH_MULTI_A` (34 cols), `BENCH_MULTI_B` (33 cols), `BENCH_MULTI_C` (33 cols), inserts the same volume of random data, and benchmarks reading only 10 needed columns through a 3-table JOIN.
-3. **Comparison**: Prints a side-by-side table showing the ratio. The key insight: even with the overhead of a 3-table JOIN, reading only 10 columns can be faster than reading all 100 from a single wide table.
+2. **Phase 2 -- Three Normalized Tables**: Creates `BENCH_MULTI_A` (34 cols), `BENCH_MULTI_B` (33 cols), `BENCH_MULTI_C` (33 cols), inserts the same volume of random data, and benchmarks reading only 10 needed columns by joining just 2 of the 3 tables (5 cols from each).
+3. **Comparison**: Prints a side-by-side table showing the ratio. The key insight: with normalized tables you only JOIN the tables you need and read fewer columns, which can be faster than reading all 100 from a single wide table.
 
 ## Requirements
 
@@ -95,10 +95,10 @@ python oracle_benchmark.py
 +---------------------------+----------+----------+----------+------------+-----------+
 
 ======================================================================
-  Phase 2: 3 Normalized Tables + JOIN -- read only 10 cols
+  Phase 2: Normalized Tables -- read only 10 cols via 1 JOIN
 ======================================================================
 
-[Benchmarking Reads (3-table JOIN, selected cols only)]
+[Benchmarking Reads (2-table JOIN, selected cols only)]
 +------------------------------+----------+----------+----------+------------+-----------+
 | Pattern                      |  Min (s) |  Max (s) |  Avg (s) | Median (s) | Stdev (s) |
 +==============================+==========+==========+==========+============+===========+

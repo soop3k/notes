@@ -4,11 +4,11 @@ Oracle Performance Benchmark Tool
 
 Compares read performance between:
   1) A single wide table with 100 columns — always reads ALL columns (SELECT *)
-  2) Three normalized tables (same data split) joined together — reads only
-     NEEDED columns (10 cols) through a 3-table JOIN.
+  2) Three normalized tables (same data split across 3 tables) — reads only
+     NEEDED columns (10 cols) via a single JOIN of 2 tables.
 
 The point: with a wide table you must read everything, but with normalized
-tables you JOIN and read only the columns you actually need.
+tables you only JOIN the tables that have the columns you need.
 
 Usage:
     python oracle_benchmark.py --host <host> --port <port> --service <service> --user <user> --password <password>
@@ -42,7 +42,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 NUM_COLUMNS = 100          # total number of data columns
-JOIN_SELECT_COLS = 10      # how many columns to read in the JOIN scenario
+NORM_SELECT_COLS = 10      # how many columns to read in the normalized scenario
 NUM_ROWS = 10_000          # rows to insert
 ITERATIONS = 10            # how many times each query is executed for averaging
 FETCH_ALL = True           # whether to fetch all rows (True) or just execute (False)
@@ -191,7 +191,7 @@ def benchmark_single_table(cursor) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Benchmark: Three normalized tables with JOIN (read only needed columns)
+# Benchmark: Three normalized tables (read needed cols via 1 JOIN of 2 tables)
 # ---------------------------------------------------------------------------
 
 MULTI_TABLES = ("BENCH_MULTI_A", "BENCH_MULTI_B", "BENCH_MULTI_C")
@@ -222,16 +222,21 @@ def create_multi_tables(cursor):
         cursor.execute(ddl)
         print(f"  Created table {tbl} with {end - start + 1} columns (COL_{start:03d}..COL_{end:03d})")
 
-    # Create a view that JOINs all 3 tables but only selects the needed columns.
-    view_cols = ", ".join(f"a.{col_name(i)}" for i in range(1, JOIN_SELECT_COLS + 1))
+    # Create a view that JOINs only 2 tables (A and B) to get the needed columns.
+    # We pick 5 cols from table A and 5 cols from table B to require a single JOIN.
+    ranges = _col_ranges()
+    a_start = ranges[0][0]
+    b_start = ranges[1][0]
+    half = NORM_SELECT_COLS // 2
+    view_a_cols = ", ".join(f"a.{col_name(i)}" for i in range(a_start, a_start + half))
+    view_b_cols = ", ".join(f"b.{col_name(i)}" for i in range(b_start, b_start + (NORM_SELECT_COLS - half)))
     cursor.execute(f"""
         CREATE VIEW {MULTI_VIEW} AS
-        SELECT a.ID, {view_cols}
+        SELECT a.ID, {view_a_cols}, {view_b_cols}
         FROM {MULTI_TABLES[0]} a
         JOIN {MULTI_TABLES[1]} b ON a.ID = b.ID
-        JOIN {MULTI_TABLES[2]} c ON a.ID = c.ID
     """)
-    print(f"  Created view  {MULTI_VIEW} (3-table JOIN, {JOIN_SELECT_COLS} cols)")
+    print(f"  Created view  {MULTI_VIEW} (2-table JOIN, {NORM_SELECT_COLS} cols)")
 
 
 def insert_multi_tables(conn, cursor):
@@ -263,22 +268,28 @@ def insert_multi_tables(conn, cursor):
 
 
 def benchmark_multi_tables(cursor) -> list[dict]:
-    """Run 3 read patterns using a 3-table JOIN but reading only needed columns.
+    """Run 3 read patterns using a single JOIN of 2 normalized tables.
 
-    With normalized tables you JOIN all 3 tables but only SELECT the columns
-    you actually need (JOIN_SELECT_COLS columns), not all 100.
+    With normalized tables you only JOIN the tables that have the columns
+    you need. Here we JOIN tables A and B (skipping C) to read
+    NORM_SELECT_COLS columns.
     """
-    select_cols = ", ".join(f"a.{col_name(i)}" for i in range(1, JOIN_SELECT_COLS + 1))
+    ranges = _col_ranges()
+    a_start = ranges[0][0]
+    b_start = ranges[1][0]
+    half = NORM_SELECT_COLS // 2
+    a_cols = ", ".join(f"a.{col_name(i)}" for i in range(a_start, a_start + half))
+    b_cols = ", ".join(f"b.{col_name(i)}" for i in range(b_start, b_start + (NORM_SELECT_COLS - half)))
+    select_cols = f"{a_cols}, {b_cols}"
 
     join_clause = (
         f"FROM {MULTI_TABLES[0]} a "
-        f"JOIN {MULTI_TABLES[1]} b ON a.ID = b.ID "
-        f"JOIN {MULTI_TABLES[2]} c ON a.ID = c.ID"
+        f"JOIN {MULTI_TABLES[1]} b ON a.ID = b.ID"
     )
 
     queries = {
-        f"SELECT ({JOIN_SELECT_COLS} cols) + JOIN": f"SELECT a.ID, {select_cols} {join_clause}",
-        f"VIEW   ({JOIN_SELECT_COLS} cols) + JOIN": f"SELECT * FROM {MULTI_VIEW}",
+        f"SELECT ({NORM_SELECT_COLS} cols) + JOIN": f"SELECT a.ID, {select_cols} {join_clause}",
+        f"VIEW   ({NORM_SELECT_COLS} cols) + JOIN": f"SELECT * FROM {MULTI_VIEW}",
         "SELECT * + JOIN": f"SELECT a.ID, {select_cols} {join_clause}",
     }
 
@@ -348,7 +359,7 @@ def main():
     print_section("Oracle Benchmark Tool")
     print(f"  Rows: {NUM_ROWS}  |  Iterations: {ITERATIONS}  |  Fetch: {FETCH_ALL}")
     print(f"  Wide table:       reads ALL {NUM_COLUMNS} columns")
-    print(f"  Normalized + JOIN: reads only {JOIN_SELECT_COLS} columns via 3-table JOIN")
+    print(f"  Normalized:       reads only {NORM_SELECT_COLS} columns via 1 JOIN (2 tables)")
 
     conn = get_connection(args)
     cursor = conn.cursor()
@@ -372,7 +383,7 @@ def main():
         format_results(single_results)
 
         # ---- Multi-Table Benchmark ----
-        print_section(f"Phase 2: 3 Normalized Tables + JOIN — read only {JOIN_SELECT_COLS} cols")
+        print_section(f"Phase 2: Normalized Tables — read only {NORM_SELECT_COLS} cols via 1 JOIN")
         print("\n[Setup]")
         create_multi_tables(cursor)
         conn.commit()
@@ -382,12 +393,12 @@ def main():
             insert_multi_tables(conn, cursor)
         print(f"  Insert time: {t_ins['elapsed']:.2f}s")
 
-        print("\n[Benchmarking Reads (3-table JOIN, selected cols only)]")
+        print("\n[Benchmarking Reads (2-table JOIN, selected cols only)]")
         multi_results = benchmark_multi_tables(cursor)
         format_results(multi_results)
 
         # ---- Comparison ----
-        print_section(f"Comparison: Wide Table (all {NUM_COLUMNS} cols) vs Normalized ({JOIN_SELECT_COLS} cols)")
+        print_section(f"Comparison: Wide Table (all {NUM_COLUMNS} cols) vs Normalized ({NORM_SELECT_COLS} cols)")
         comparison = []
         for s, m in zip(single_results, multi_results):
             ratio = m["Avg (s)"] / s["Avg (s)"] if s["Avg (s)"] > 0 else float("inf")
