@@ -290,7 +290,7 @@ def benchmark_multi_tables(cursor) -> list[dict]:
     queries = {
         f"SELECT ({NORM_SELECT_COLS} cols) + JOIN": f"SELECT a.ID, {select_cols} {join_clause}",
         f"VIEW   ({NORM_SELECT_COLS} cols) + JOIN": f"SELECT * FROM {MULTI_VIEW}",
-        "SELECT * + JOIN": f"SELECT a.ID, {select_cols} {join_clause}",
+        "SELECT * + JOIN": f"SELECT * {join_clause}",
     }
 
     results = []
