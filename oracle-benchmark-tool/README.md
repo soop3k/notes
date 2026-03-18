@@ -18,15 +18,15 @@ Compares read performance of:
 |---|---------|-------------|
 | 1 | `SELECT (10 cols) + JOIN` | Selects 10 columns via a 3-way JOIN |
 | 2 | `VIEW (10 cols) + JOIN` | Reads through a VIEW built on a 3-way JOIN |
-| 3 | `SELECT (10 cols) no-JOIN` | Selects 10 columns from a single table (no JOIN needed) |
+| 3 | `SELECT * + JOIN` | Selects columns via a 3-way JOIN |
 
 Each pattern is executed multiple times (default: 10) and min/max/avg/median/stdev are reported.
 
 ## What It Does
 
 1. **Phase 1 -- Single Table**: Creates `BENCH_SINGLE` with 100 `VARCHAR2(50)` columns, inserts 10 000 rows of random data, and benchmarks reading ALL columns.
-2. **Phase 2 -- Three Tables with JOIN**: Creates `BENCH_MULTI_A` (34 cols), `BENCH_MULTI_B` (33 cols), `BENCH_MULTI_C` (33 cols), inserts the same volume of random data, and benchmarks reading only 10 needed columns.
-3. **Comparison**: Prints a side-by-side table showing the ratio. The key insight: even though JOINs add overhead, reading fewer columns can make the normalized approach faster overall.
+2. **Phase 2 -- Three Tables with JOIN**: Creates `BENCH_MULTI_A` (34 cols), `BENCH_MULTI_B` (33 cols), `BENCH_MULTI_C` (33 cols), inserts the same volume of random data, and benchmarks reading only 10 needed columns through a 3-table JOIN.
+3. **Comparison**: Prints a side-by-side table showing the ratio. The key insight: even with the overhead of a 3-table JOIN, reading only 10 columns can be faster than reading all 100 from a single wide table.
 
 ## Requirements
 
@@ -95,16 +95,16 @@ python oracle_benchmark.py
 +---------------------------+----------+----------+----------+------------+-----------+
 
 ======================================================================
-  Phase 2: Three Tables with JOIN -- read only 10 columns
+  Phase 2: 3 Normalized Tables + JOIN -- read only 10 cols
 ======================================================================
 
-[Benchmarking Reads with JOINs]
+[Benchmarking Reads (3-table JOIN, selected cols only)]
 +------------------------------+----------+----------+----------+------------+-----------+
 | Pattern                      |  Min (s) |  Max (s) |  Avg (s) | Median (s) | Stdev (s) |
 +==============================+==========+==========+==========+============+===========+
 | SELECT (10 cols) + JOIN      |   0.0485 |   0.0612 |   0.0530 |     0.0520 |    0.0038 |
 | VIEW   (10 cols) + JOIN      |   0.0490 |   0.0608 |   0.0535 |     0.0528 |    0.0035 |
-| SELECT (10 cols) no-JOIN     |   0.0310 |   0.0420 |   0.0355 |     0.0348 |    0.0030 |
+| SELECT * + JOIN              |   0.0488 |   0.0615 |   0.0532 |     0.0522 |    0.0036 |
 +------------------------------+----------+----------+----------+------------+-----------+
 
 ======================================================================
@@ -115,7 +115,7 @@ python oracle_benchmark.py
 +===========================+==================+==============================+================+======================+=============+
 | SELECT (all 100 cols)     |           0.1920 | SELECT (10 cols) + JOIN      |         0.0530 |               0.2760 | JOIN faster |
 | VIEW   (all 100 cols)     |           0.1910 | VIEW   (10 cols) + JOIN      |         0.0535 |               0.2801 | JOIN faster |
-| SELECT *                  |           0.1935 | SELECT (10 cols) no-JOIN     |         0.0355 |               0.1835 | JOIN faster |
+| SELECT *                  |           0.1935 | SELECT * + JOIN              |         0.0532 |               0.2749 | JOIN faster |
 +---------------------------+------------------+------------------------------+----------------+----------------------+-------------+
 ```
 

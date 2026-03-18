@@ -4,10 +4,11 @@ Oracle Performance Benchmark Tool
 
 Compares read performance between:
   1) A single wide table with 100 columns — always reads ALL columns (SELECT *)
-  2) Three normalized tables joined together — reads only NEEDED columns (10 cols)
+  2) Three normalized tables (same data split) joined together — reads only
+     NEEDED columns (10 cols) through a 3-table JOIN.
 
 The point: with a wide table you must read everything, but with normalized
-tables you can read only the columns you actually need from the relevant table(s).
+tables you JOIN and read only the columns you actually need.
 
 Usage:
     python oracle_benchmark.py --host <host> --port <port> --service <service> --user <user> --password <password>
@@ -190,7 +191,7 @@ def benchmark_single_table(cursor) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Benchmark: Three normalized tables with JOINs
+# Benchmark: Three normalized tables with JOIN (read only needed columns)
 # ---------------------------------------------------------------------------
 
 MULTI_TABLES = ("BENCH_MULTI_A", "BENCH_MULTI_B", "BENCH_MULTI_C")
@@ -221,9 +222,7 @@ def create_multi_tables(cursor):
         cursor.execute(ddl)
         print(f"  Created table {tbl} with {end - start + 1} columns (COL_{start:03d}..COL_{end:03d})")
 
-    # Create a view that joins only the table(s) needed for JOIN_SELECT_COLS columns.
-    # The first SPLIT[0] columns live in table A, so if JOIN_SELECT_COLS <= SPLIT[0]
-    # we only need table A.  We still JOIN all 3 to show the join pattern.
+    # Create a view that JOINs all 3 tables but only selects the needed columns.
     view_cols = ", ".join(f"a.{col_name(i)}" for i in range(1, JOIN_SELECT_COLS + 1))
     cursor.execute(f"""
         CREATE VIEW {MULTI_VIEW} AS
@@ -232,7 +231,7 @@ def create_multi_tables(cursor):
         JOIN {MULTI_TABLES[1]} b ON a.ID = b.ID
         JOIN {MULTI_TABLES[2]} c ON a.ID = c.ID
     """)
-    print(f"  Created view  {MULTI_VIEW} (JOIN of all 3 tables, {JOIN_SELECT_COLS} cols)")
+    print(f"  Created view  {MULTI_VIEW} (3-table JOIN, {JOIN_SELECT_COLS} cols)")
 
 
 def insert_multi_tables(conn, cursor):
@@ -264,10 +263,10 @@ def insert_multi_tables(conn, cursor):
 
 
 def benchmark_multi_tables(cursor) -> list[dict]:
-    """Run 3 read patterns using JOINs across the 3 tables.
+    """Run 3 read patterns using a 3-table JOIN but reading only needed columns.
 
-    With normalized tables you only read the columns you actually need
-    (JOIN_SELECT_COLS columns), not all 100.
+    With normalized tables you JOIN all 3 tables but only SELECT the columns
+    you actually need (JOIN_SELECT_COLS columns), not all 100.
     """
     select_cols = ", ".join(f"a.{col_name(i)}" for i in range(1, JOIN_SELECT_COLS + 1))
 
@@ -280,7 +279,7 @@ def benchmark_multi_tables(cursor) -> list[dict]:
     queries = {
         f"SELECT ({JOIN_SELECT_COLS} cols) + JOIN": f"SELECT a.ID, {select_cols} {join_clause}",
         f"VIEW   ({JOIN_SELECT_COLS} cols) + JOIN": f"SELECT * FROM {MULTI_VIEW}",
-        f"SELECT ({JOIN_SELECT_COLS} cols) no-JOIN": f"SELECT a.ID, {select_cols} FROM {MULTI_TABLES[0]} a",
+        "SELECT * + JOIN": f"SELECT a.ID, {select_cols} {join_clause}",
     }
 
     results = []
@@ -348,8 +347,8 @@ def main():
 
     print_section("Oracle Benchmark Tool")
     print(f"  Rows: {NUM_ROWS}  |  Iterations: {ITERATIONS}  |  Fetch: {FETCH_ALL}")
-    print(f"  Single table: reads ALL {NUM_COLUMNS} columns")
-    print(f"  JOIN tables:  reads only {JOIN_SELECT_COLS} columns")
+    print(f"  Wide table:       reads ALL {NUM_COLUMNS} columns")
+    print(f"  Normalized + JOIN: reads only {JOIN_SELECT_COLS} columns via 3-table JOIN")
 
     conn = get_connection(args)
     cursor = conn.cursor()
@@ -373,7 +372,7 @@ def main():
         format_results(single_results)
 
         # ---- Multi-Table Benchmark ----
-        print_section(f"Phase 2: Three Tables with JOIN — read only {JOIN_SELECT_COLS} columns")
+        print_section(f"Phase 2: 3 Normalized Tables + JOIN — read only {JOIN_SELECT_COLS} cols")
         print("\n[Setup]")
         create_multi_tables(cursor)
         conn.commit()
@@ -383,22 +382,22 @@ def main():
             insert_multi_tables(conn, cursor)
         print(f"  Insert time: {t_ins['elapsed']:.2f}s")
 
-        print("\n[Benchmarking Reads with JOINs]")
+        print("\n[Benchmarking Reads (3-table JOIN, selected cols only)]")
         multi_results = benchmark_multi_tables(cursor)
         format_results(multi_results)
 
         # ---- Comparison ----
-        print_section(f"Comparison: Single Table (all {NUM_COLUMNS} cols) vs JOIN ({JOIN_SELECT_COLS} cols)")
+        print_section(f"Comparison: Wide Table (all {NUM_COLUMNS} cols) vs Normalized ({JOIN_SELECT_COLS} cols)")
         comparison = []
         for s, m in zip(single_results, multi_results):
             ratio = m["Avg (s)"] / s["Avg (s)"] if s["Avg (s)"] > 0 else float("inf")
             comparison.append({
                 "Single-Table Pattern": s["Pattern"],
                 "Single Avg (s)": s["Avg (s)"],
-                "JOIN Pattern": m["Pattern"],
-                "JOIN Avg (s)": m["Avg (s)"],
-                "JOIN / Single Ratio": ratio,
-                "Verdict": "JOIN slower" if ratio > 1.05 else ("Similar" if ratio > 0.95 else "JOIN faster"),
+                "Normalized Pattern": m["Pattern"],
+                "Normalized Avg (s)": m["Avg (s)"],
+                "Norm / Wide Ratio": ratio,
+                "Verdict": "Normalized slower" if ratio > 1.05 else ("Similar" if ratio > 0.95 else "Normalized faster"),
             })
         format_results(comparison)
 
