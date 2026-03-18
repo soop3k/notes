@@ -1,22 +1,32 @@
 # Oracle Read Performance Benchmark
 
-Compares read performance of a **single wide table (100 columns)** vs **3 normalized tables joined together** (same data split across 3 tables).
+Compares read performance of:
+- **Single wide table (100 columns)** -- always reads ALL columns (simulates a denormalized design where you must fetch everything)
+- **3 normalized tables joined** -- reads only the NEEDED columns (default: 10), showing the advantage of normalization
 
 ## Read Patterns Tested
 
+### Single Table (reads ALL 100 columns every time)
 | # | Pattern | Description |
 |---|---------|-------------|
-| 1 | `SELECT` (specific columns) | Reads 5 specific columns from the table(s) |
-| 2 | `VIEW` | Reads through a pre-created VIEW (also 5 columns) |
-| 3 | `SELECT *` | Reads all 100 columns from the table(s) |
+| 1 | `SELECT (all 100 cols)` | Explicitly selects all 100 columns |
+| 2 | `VIEW (all 100 cols)` | Reads through a VIEW over all 100 columns |
+| 3 | `SELECT *` | `SELECT *` from the wide table |
+
+### 3-Table JOIN (reads only 10 columns)
+| # | Pattern | Description |
+|---|---------|-------------|
+| 1 | `SELECT (10 cols) + JOIN` | Selects 10 columns via a 3-way JOIN |
+| 2 | `VIEW (10 cols) + JOIN` | Reads through a VIEW built on a 3-way JOIN |
+| 3 | `SELECT (10 cols) no-JOIN` | Selects 10 columns from a single table (no JOIN needed) |
 
 Each pattern is executed multiple times (default: 10) and min/max/avg/median/stdev are reported.
 
 ## What It Does
 
-1. **Phase 1 – Single Table**: Creates `BENCH_SINGLE` with 100 `VARCHAR2(50)` columns, inserts 10 000 rows of random data, and benchmarks the 3 read patterns.
-2. **Phase 2 – Three Tables with JOIN**: Creates `BENCH_MULTI_A` (34 cols), `BENCH_MULTI_B` (33 cols), `BENCH_MULTI_C` (33 cols), inserts the same volume of random data, and benchmarks the same 3 read patterns using a 3-way JOIN on `ID`.
-3. **Comparison**: Prints a side-by-side table showing the ratio of JOIN vs single-table performance.
+1. **Phase 1 -- Single Table**: Creates `BENCH_SINGLE` with 100 `VARCHAR2(50)` columns, inserts 10 000 rows of random data, and benchmarks reading ALL columns.
+2. **Phase 2 -- Three Tables with JOIN**: Creates `BENCH_MULTI_A` (34 cols), `BENCH_MULTI_B` (33 cols), `BENCH_MULTI_C` (33 cols), inserts the same volume of random data, and benchmarks reading only 10 needed columns.
+3. **Comparison**: Prints a side-by-side table showing the ratio. The key insight: even though JOINs add overhead, reading fewer columns can make the normalized approach faster overall.
 
 ## Requirements
 
@@ -72,44 +82,44 @@ python oracle_benchmark.py
 
 ```
 ======================================================================
-  Phase 1: Single Table (100 columns)
+  Phase 1: Single Table -- read ALL 100 columns
 ======================================================================
 
 [Benchmarking Reads]
-+------------------+----------+----------+----------+------------+-----------+
-| Pattern          |  Min (s) |  Max (s) |  Avg (s) | Median (s) | Stdev (s) |
-+==================+==========+==========+==========+============+===========+
-| SELECT (5 cols)  |   0.0312 |   0.0425 |   0.0354 |     0.0348 |    0.0032 |
-| VIEW (5 cols)    |   0.0308 |   0.0410 |   0.0350 |     0.0345 |    0.0029 |
-| SELECT *         |   0.1820 |   0.2150 |   0.1935 |     0.1910 |    0.0095 |
-+------------------+----------+----------+----------+------------+-----------+
++---------------------------+----------+----------+----------+------------+-----------+
+| Pattern                   |  Min (s) |  Max (s) |  Avg (s) | Median (s) | Stdev (s) |
++===========================+==========+==========+==========+============+===========+
+| SELECT (all 100 cols)     |   0.1780 |   0.2100 |   0.1920 |     0.1900 |    0.0090 |
+| VIEW   (all 100 cols)     |   0.1790 |   0.2080 |   0.1910 |     0.1895 |    0.0085 |
+| SELECT *                  |   0.1820 |   0.2150 |   0.1935 |     0.1910 |    0.0095 |
++---------------------------+----------+----------+----------+------------+-----------+
 
 ======================================================================
-  Phase 2: Three Tables with JOIN (100 columns total)
+  Phase 2: Three Tables with JOIN -- read only 10 columns
 ======================================================================
 
 [Benchmarking Reads with JOINs]
-+-------------------------+----------+----------+----------+------------+-----------+
-| Pattern                 |  Min (s) |  Max (s) |  Avg (s) | Median (s) | Stdev (s) |
-+=========================+==========+==========+==========+============+===========+
-| SELECT (5 cols) + JOIN  |   0.0485 |   0.0612 |   0.0530 |     0.0520 |    0.0038 |
-| VIEW (5 cols) + JOIN    |   0.0490 |   0.0608 |   0.0535 |     0.0528 |    0.0035 |
-| SELECT * + JOIN         |   0.2510 |   0.2890 |   0.2680 |     0.2660 |    0.0110 |
-+-------------------------+----------+----------+----------+------------+-----------+
++------------------------------+----------+----------+----------+------------+-----------+
+| Pattern                      |  Min (s) |  Max (s) |  Avg (s) | Median (s) | Stdev (s) |
++==============================+==========+==========+==========+============+===========+
+| SELECT (10 cols) + JOIN      |   0.0485 |   0.0612 |   0.0530 |     0.0520 |    0.0038 |
+| VIEW   (10 cols) + JOIN      |   0.0490 |   0.0608 |   0.0535 |     0.0528 |    0.0035 |
+| SELECT (10 cols) no-JOIN     |   0.0310 |   0.0420 |   0.0355 |     0.0348 |    0.0030 |
++------------------------------+----------+----------+----------+------------+-----------+
 
 ======================================================================
-  Comparison: Single Table vs 3-Table JOIN
+  Comparison: Single Table (all 100 cols) vs JOIN (10 cols)
 ======================================================================
-+-----------+------------------+----------------+----------------------+-------------+
-| Pattern   | Single Avg (s)   | JOIN Avg (s)   | JOIN / Single Ratio  | Verdict     |
-+===========+==================+================+======================+=============+
-| SELECT    |           0.0354 |         0.0530 |               1.4972 | JOIN slower |
-| VIEW      |           0.0350 |         0.0535 |               1.5286 | JOIN slower |
-| SELECT *  |           0.1935 |         0.2680 |               1.3850 | JOIN slower |
-+-----------+------------------+----------------+----------------------+-------------+
++---------------------------+------------------+------------------------------+----------------+----------------------+-------------+
+| Single-Table Pattern      | Single Avg (s)   | JOIN Pattern                 | JOIN Avg (s)   | JOIN / Single Ratio  | Verdict     |
++===========================+==================+==============================+================+======================+=============+
+| SELECT (all 100 cols)     |           0.1920 | SELECT (10 cols) + JOIN      |         0.0530 |               0.2760 | JOIN faster |
+| VIEW   (all 100 cols)     |           0.1910 | VIEW   (10 cols) + JOIN      |         0.0535 |               0.2801 | JOIN faster |
+| SELECT *                  |           0.1935 | SELECT (10 cols) no-JOIN     |         0.0355 |               0.1835 | JOIN faster |
++---------------------------+------------------+------------------------------+----------------+----------------------+-------------+
 ```
 
-*(Values above are illustrative — actual numbers depend on your Oracle instance.)*
+*(Values above are illustrative -- actual numbers depend on your Oracle instance.)*
 
 ## Database User Setup
 
