@@ -1,0 +1,19 @@
+spring:
+  application.name: zip-importer
+  datasource:
+    url: jdbc:h2:file:./data/imports;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+importer:
+  mode: local
+  zone: Europe/Warsaw
+  polling:
+    fixed-delay: 5s
+    file-check-interval: 30s
+    batch-size: 10
+  sftp:
+    host: localhost
+    port: 22
+    username: importer
+    known-hosts: ${user.home}/.ssh/known_hosts
+    allow-unknown-host: false
